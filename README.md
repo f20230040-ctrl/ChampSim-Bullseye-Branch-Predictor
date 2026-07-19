@@ -1,14 +1,34 @@
-# ChampSim Bullseye Branch Predictor
+# ChampSim Bullseye Branch Predictor & Adaptive HCIT Replacement
 
 ## Overview
 
-This repository contains my implementation of the **Bullseye Branch Predictor** and an **Adaptive Bullseye Branch Predictor** in the ChampSim simulator for the Computer Architecture assignment.
+This repository contains my implementation of the **Bullseye Branch Predictor**, the **Adaptive Bullseye Branch Predictor**, and **Adaptive HCIT (Hard-to-Cache Instruction Tracker) LLC Replacement Policy** in the ChampSim simulator for the Computer Architecture assignment.
 
-The objective of this project is to improve branch prediction accuracy by identifying Hard-to-Predict (H2P) branches and assigning dedicated prediction resources to them while allowing easy branches to continue using the baseline predictor.
+The objective of this project is to:
+1. Improve branch prediction accuracy by identifying Hard-to-Predict (H2P) branches and assigning dedicated prediction resources to them.
+2. Improve Last-Level Cache (LLC) performance by dynamically identifying dead-on-arrival vs. reusable cache lines using a PC-based Adaptive HCIT replacement policy.
 
 ---
 
-# Implemented Predictors
+# Implemented Cache Replacement Policies (Task 2)
+
+## 1. MRU (Most Recently Used)
+The MRU policy evicts the block that was most recently accessed. This is typically beneficial for access patterns that strictly cycle through working sets larger than the cache (e.g., sequential scanning without temporal locality).
+
+## 2. Random
+The Random policy evicts a cache block uniformly at random from the set. This policy is simple to implement and avoids pathological edge cases (like cyclic thrashing) where LRU performs exceptionally poorly.
+
+## 3. Adaptive HCIT
+The Adaptive HCIT policy is designed to solve a fundamental weakness of LRU: treating all misses equally. Some cache blocks are dead-on-arrival (streaming patterns), while others are evicted just before they would have been reused (Hard-to-Cache Instructions).
+
+**Features:**
+- **Victim Tag Buffer (VTB):** Tracks metadata of recently evicted LLC lines to detect premature evictions.
+- **PC-based Profiling:** Identifies the PCs responsible for causing premature evictions and protects them, while penalizing PCs that cause dead-on-arrival streaming blocks.
+- **Adaptive Thresholds:** Automatically measures global cache hit-rate and adjusts the aggressiveness of the HCIT protection mechanism.
+
+---
+
+# Implemented Predictors (Task 1)
 
 ## 1. Bullseye Predictor
 
@@ -27,82 +47,22 @@ The implementation is based on the paper:
 
 with necessary adaptations for this version of ChampSim.
 
----
-
 ## 2. Adaptive Bullseye Predictor
 
 The Adaptive Bullseye predictor further improves the Bullseye design by replacing fixed confidence thresholds with adaptive thresholds that automatically adjust according to recent prediction accuracy.
-
-Adaptive features include:
-
-- Adaptive confidence threshold
-- Adaptive HIT admission threshold
-- Dynamic confidence arbitration
-- Automatic tuning based on recent prediction performance
-
----
-
-# Modifications Made
-
-The following files were added to the simulator:
-
-```
-branch/bullseye.bpred
-branch/adaptive_bullseye.bpred
-```
-
-These files implement the complete Bullseye and Adaptive Bullseye branch predictors.
-
-No unrelated simulator components were modified.
-
----
-
-# Changes Made in the Simulator
-
-The following functionality was added:
-
-- Bullseye prediction pipeline
-- Hard-to-Predict (H2P) branch detection
-- H2P cache management
-- Local-history perceptron
-- Global-history perceptron
-- Confidence arbiter
-- Selective baseline predictor updates
-- Adaptive confidence mechanism
-- Adaptive admission thresholds
-
-These changes are fully integrated into ChampSim's branch prediction framework.
 
 ---
 
 # Build Instructions
 
-Build Bullseye:
+Build Adaptive HCIT LLC Policy:
+```bash
+./build_champsim.sh bimodal no no no no adaptive_hcit 1
+```
 
+Build Bullseye Predictor:
 ```bash
 ./build_champsim.sh bullseye no no no no lru 1
-```
-
-Build Adaptive Bullseye:
-
-```bash
-./build_champsim.sh adaptive_bullseye no no no no lru 1
-```
-
----
-
-# Running Simulations
-
-Example:
-
-```bash
-./run_champsim.sh bullseye-no-no-no-no-lru-1core 1 10 401.bzip2-277B.champsimtrace.xz
-```
-
-Adaptive version:
-
-```bash
-./run_champsim.sh adaptive_bullseye-no-no-no-no-lru-1core 1 10 401.bzip2-277B.champsimtrace.xz
 ```
 
 ---
@@ -111,33 +71,14 @@ Adaptive version:
 
 Experiments were performed on the benchmark traces specified in the assignment.
 
-Metrics collected include:
+**Task 2 (Cache Evaluation):**
+- 1MB, 2MB, 4MB, 8MB caches with 16-way associativity.
+- 2MB cache with 8-way associativity.
+- Results and graphical charts are available in `results.md` and `report.html`.
 
-- Branch Prediction Accuracy
-- MPKI
-- Cache Miss Latency
-- Execution Time
-
-Both single-core and four-core experiments were completed.
-
-Results are available in:
-
-```
-results_10M/
-results_4core_10M/
-```
-
-Summary tables are available in:
-
-```
-accuracy_1core.txt
-accuracy_4core.txt
-mpki_1core.txt
-mpki_4core.txt
-time_1core.txt
-time_4core.txt
-comparison_table.md
-```
+**Task 1 (Branch Prediction Evaluation):**
+- Branch Prediction Accuracy, MPKI, Cache Miss Latency, Execution Time.
+- Results are available in `accuracy_1core.txt`, `mpki_1core.txt`, etc.
 
 ---
 
@@ -154,20 +95,13 @@ scripts/
 results_10M/
 results_4core_10M/
 
+results.md
+report.html
+summary_stats.csv
 README.md
 ```
 
 ---
-
-## References
-
-1. A. Seznec et al., *Taming Wild Branches: Overcoming Hard-to-Predict Branches using the Bullseye Predictor.*
-
-2. ChampSim: A Trace-Based Microarchitecture Simulator.
-
----
-
-# Author
 
 ## Author
 

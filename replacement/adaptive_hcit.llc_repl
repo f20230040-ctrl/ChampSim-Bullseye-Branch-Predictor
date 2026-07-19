@@ -1,0 +1,186 @@
+#include "cache.h"
+#include <vector>
+#include <cassert>
+
+#define maxRRPV 3
+#define HCIT_SIZE 16384
+#define HCIT_PRIME 16381
+#define VTB_SIZE 1024
+#define ADAPT_WINDOW 10000
+
+// Use static to prevent namespace collisions and ODR violations if LLC_SET changes dynamically
+static uint32_t rrpv[LLC_SET][LLC_WAY];
+static uint64_t block_ip[LLC_SET][LLC_WAY];
+
+struct VTB_Entry {
+    bool valid;
+    uint64_t tag;
+    uint64_t ip;
+    uint32_t lru;
+};
+static VTB_Entry vtb[VTB_SIZE];
+
+static int hcit_score[NUM_CPUS][HCIT_SIZE];
+
+// Adaptation
+static uint32_t recent_accesses = 0;
+static uint32_t recent_hits = 0;
+static float last_hit_rate = 0.0;
+static int current_threshold = 2; // threshold for protection
+static int adapt_direction = -1; // try lowering threshold first (protect more)
+
+void CACHE::llc_initialize_replacement()
+{
+    for (int i=0; i<LLC_SET; i++) {
+        for (int j=0; j<LLC_WAY; j++) {
+            rrpv[i][j] = maxRRPV;
+            block_ip[i][j] = 0;
+        }
+    }
+    for (int i=0; i<VTB_SIZE; i++) {
+        vtb[i].valid = false;
+        vtb[i].tag = 0;
+        vtb[i].ip = 0;
+        vtb[i].lru = i;
+    }
+    for (int c=0; c<NUM_CPUS; c++) {
+        for (int i=0; i<HCIT_SIZE; i++) hcit_score[c][i] = 0;
+    }
+}
+
+uint32_t CACHE::llc_find_victim(uint32_t cpu, uint64_t instr_id, uint32_t set, const BLOCK *current_set, uint64_t ip, uint64_t full_addr, uint32_t type)
+{
+    // Protect against out-of-bounds sets (e.g. ODR violation during cache configuration changes)
+    if (set >= LLC_SET) set = 0;
+
+    while (1) {
+        for (int i=0; i<LLC_WAY; i++) {
+            if (rrpv[set][i] >= maxRRPV) {
+                // Eviction!
+                uint64_t victim_tag = current_set[i].address;
+                uint64_t victim_ip = block_ip[set][i];
+                
+                // Add to VTB
+                int vtb_victim = 0;
+                uint32_t max_lru = 0;
+                for (int v=0; v<VTB_SIZE; v++) {
+                    if (vtb[v].lru >= max_lru) {
+                        max_lru = vtb[v].lru;
+                        vtb_victim = v;
+                    }
+                }
+                
+                // If VTB victim is valid, it fell out without being reused -> streaming/dead-on-arrival
+                if (vtb[vtb_victim].valid) {
+                    uint32_t hash = vtb[vtb_victim].ip % HCIT_PRIME;
+                    uint32_t safe_cpu = (cpu < NUM_CPUS) ? cpu : 0;
+                    if (hcit_score[safe_cpu][hash] > -10) hcit_score[safe_cpu][hash]--; 
+                }
+                
+                // Insert new victim into VTB
+                vtb[vtb_victim].valid = true;
+                vtb[vtb_victim].tag = victim_tag;
+                vtb[vtb_victim].ip = victim_ip;
+                
+                // Update VTB LRU
+                uint32_t old_lru = vtb[vtb_victim].lru;
+                for (int v=0; v<VTB_SIZE; v++) {
+                    if (vtb[v].lru < old_lru) vtb[v].lru++;
+                }
+                vtb[vtb_victim].lru = 0;
+
+                return i;
+            }
+        }
+
+        for (int i=0; i<LLC_WAY; i++) {
+            rrpv[set][i]++;
+        }
+    }
+    return 0;
+}
+
+void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, uint64_t full_addr, uint64_t ip, uint64_t victim_addr, uint32_t type, uint8_t hit)
+{
+    // Protect against out-of-bounds sets/ways
+    if (set >= LLC_SET) set = 0;
+    if (way >= LLC_WAY) way = 0;
+
+    recent_accesses++;
+    if (hit) recent_hits++;
+    
+    // Adaptation logic
+    if (recent_accesses >= ADAPT_WINDOW) {
+        float hit_rate = (float)recent_hits / recent_accesses;
+        if (last_hit_rate > 0) {
+            if (hit_rate < last_hit_rate) {
+                adapt_direction = -adapt_direction; // reverse if degraded
+            }
+        }
+        current_threshold += adapt_direction;
+        
+        // Clamp threshold
+        if (current_threshold < -10) current_threshold = -10;
+        if (current_threshold > 10) current_threshold = 10;
+        
+        last_hit_rate = hit_rate;
+        recent_accesses = 0;
+        recent_hits = 0;
+    }
+
+    if (type == WRITEBACK) {
+        if (!hit) {
+            rrpv[set][way] = maxRRPV - 1;
+            block_ip[set][way] = ip;
+        }
+        return;
+    }
+
+    if (hit) {
+        rrpv[set][way] = 0;
+    } else {
+        // Miss! Check VTB
+        uint64_t tag = full_addr >> LOG2_BLOCK_SIZE;
+        bool vtb_hit = false;
+        int match = -1;
+        
+        for (int v=0; v<VTB_SIZE; v++) {
+            if (vtb[v].valid && vtb[v].tag == tag) {
+                vtb_hit = true;
+                match = v;
+                break;
+            }
+        }
+        
+        if (vtb_hit) {
+            // Premature eviction!
+            uint32_t hash = vtb[match].ip % HCIT_PRIME;
+            uint32_t safe_cpu = (cpu < NUM_CPUS) ? cpu : 0;
+            if (hcit_score[safe_cpu][hash] < 15) hcit_score[safe_cpu][hash]++;
+            
+            // Invalidate VTB entry so it's not counted twice
+            vtb[match].valid = false;
+            
+            uint32_t match_lru = vtb[match].lru;
+            for (int v=0; v<VTB_SIZE; v++) {
+                if (vtb[v].lru > match_lru) vtb[v].lru--;
+            }
+            vtb[match].lru = VTB_SIZE - 1; // push to LRU tail
+        }
+        
+        // Insertion policy
+        uint32_t hash = ip % HCIT_PRIME;
+        uint32_t safe_cpu = (cpu < NUM_CPUS) ? cpu : 0;
+        if (hcit_score[safe_cpu][hash] >= current_threshold) {
+            rrpv[set][way] = 0; // Protect!
+        } else {
+            rrpv[set][way] = maxRRPV - 1; // Default SRRIP
+        }
+        block_ip[set][way] = ip;
+    }
+}
+
+void CACHE::llc_replacement_final_stats()
+{
+}
+

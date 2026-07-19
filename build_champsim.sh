@@ -97,8 +97,7 @@ cp replacement/${LLC_REPLACEMENT}.llc_repl replacement/llc_replacement.cc
 # Build
 mkdir -p bin
 rm -f bin/champsim
-make clean
-make
+make -j$(nproc 2>/dev/null || echo 1)
 
 # Sanity check
 echo ""
