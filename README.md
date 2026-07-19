@@ -159,17 +159,18 @@ README.md
 
 ---
 
-# References
+## References
 
-1. Bullseye Predictor Paper:
-   *Taming Wild Branches: Overcoming Hard-to-Predict Branches using the Bullseye Predictor*
+1. A. Seznec et al., *Taming Wild Branches: Overcoming Hard-to-Predict Branches using the Bullseye Predictor.*
 
-2. ChampSim Simulator
+2. ChampSim: A Trace-Based Microarchitecture Simulator.
 
 ---
 
 # Author
 
-Sai Tejas Andey
-Student ID: F20230040
+## Author
+
+**Sai Tejas Andey**  
+Student ID: F20230040  
 BITS Pilani
