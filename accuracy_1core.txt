@@ -1,0 +1,16 @@
+results_10M/401.bzip2-277B.champsimtrace.xz-bimodal-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 97.2793% MPKI: 4.2577 Average ROB Occupancy at Mispredict: 85.4317
+results_10M/401.bzip2-277B.champsimtrace.xz-gshare-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 97.4742% MPKI: 3.9527 Average ROB Occupancy at Mispredict: 96.8159
+results_10M/401.bzip2-277B.champsimtrace.xz-hashed_perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 98.3304% MPKI: 2.6127 Average ROB Occupancy at Mispredict: 127.492
+results_10M/401.bzip2-277B.champsimtrace.xz-perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 98.1259% MPKI: 2.9328 Average ROB Occupancy at Mispredict: 117.356
+results_10M/403.gcc-16B.champsimtrace.xz-bimodal-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 99.5671% MPKI: 0.8526 Average ROB Occupancy at Mispredict: 43.9313
+results_10M/403.gcc-16B.champsimtrace.xz-gshare-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 99.7002% MPKI: 0.5905 Average ROB Occupancy at Mispredict: 54.6093
+results_10M/403.gcc-16B.champsimtrace.xz-hashed_perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 99.8932% MPKI: 0.2104 Average ROB Occupancy at Mispredict: 104.57
+results_10M/403.gcc-16B.champsimtrace.xz-perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 99.7009% MPKI: 0.5891 Average ROB Occupancy at Mispredict: 54.966
+results_10M/450.soplex-92B.champsimtrace.xz-bimodal-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 93.3142% MPKI: 13.7908 Average ROB Occupancy at Mispredict: 33.5388
+results_10M/450.soplex-92B.champsimtrace.xz-gshare-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 93.8981% MPKI: 12.5865 Average ROB Occupancy at Mispredict: 37.6323
+results_10M/450.soplex-92B.champsimtrace.xz-hashed_perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 94.6252% MPKI: 11.0867 Average ROB Occupancy at Mispredict: 42.0718
+results_10M/450.soplex-92B.champsimtrace.xz-perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 94.1709% MPKI: 12.0237 Average ROB Occupancy at Mispredict: 39.2391
+results_10M/482.sphinx3-1522B.champsimtrace.xz-bimodal-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 96.2692% MPKI: 3.4793 Average ROB Occupancy at Mispredict: 185.3
+results_10M/482.sphinx3-1522B.champsimtrace.xz-gshare-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 97.6127% MPKI: 2.2264 Average ROB Occupancy at Mispredict: 140.666
+results_10M/482.sphinx3-1522B.champsimtrace.xz-hashed_perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 98.9243% MPKI: 1.0032 Average ROB Occupancy at Mispredict: 161.769
+results_10M/482.sphinx3-1522B.champsimtrace.xz-perceptron-no-no-no-no-lru-1core.txt:CPU 0 Branch Prediction Accuracy: 97.9022% MPKI: 1.9564 Average ROB Occupancy at Mispredict: 152.059

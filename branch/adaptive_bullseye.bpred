@@ -1,0 +1,516 @@
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <stdlib.h>
+#include <algorithm>
+#include <assert.h>
+#include "ooo_cpu.h"
+
+// --- BASE HASHED PERCEPTRON DEFINITIONS ---
+#define NTABLES 16
+#define MAXHIST 232
+#define MINHIST 3
+#define SPEED 18
+#define LOG_TABLE_SIZE 12
+#define TABLE_SIZE (1<<LOG_TABLE_SIZE)
+#define NGHIST_WORDS (MAXHIST/LOG_TABLE_SIZE+1)
+
+int history_lengths[NTABLES] = { 0, 3, 4, 6, 8, 10, 14, 19, 26, 36, 49, 67, 91, 125, 170, MAXHIST };
+int tables[NUM_CPUS][NTABLES][TABLE_SIZE];
+unsigned int ghist_words[NUM_CPUS][NGHIST_WORDS];
+unsigned int indices[NUM_CPUS][NTABLES];
+int theta[NUM_CPUS];
+int tc[NUM_CPUS];
+int yout[NUM_CPUS];
+
+// --- BULLSEYE DEFINITIONS ---
+
+// HIT Table
+#define HIT_SETS 64
+#define HIT_WAYS 8
+struct HITEntry {
+    uint64_t tag;
+    uint32_t exec_count;
+    uint32_t mispred_count;
+    uint64_t last_used;
+    bool valid;
+};
+HITEntry hit_table[NUM_CPUS][HIT_SETS][HIT_WAYS];
+uint32_t n_h2p_active[NUM_CPUS];
+uint64_t bullseye_cycle[NUM_CPUS];
+
+// H2P Cache / Perceptrons
+#define MAX_H2P 16
+#define L_TABLES 64
+#define L_TABLE_SIZE 256
+#define G_WEIGHTS 128
+#define LOCAL_HIST_LEN 124
+
+struct H2PEntry {
+    uint64_t pc;
+    bool valid;
+    
+    // Trial Phase
+    uint32_t trial_count;
+    int relative_perf;
+    int confidence;
+    uint64_t last_used;
+    uint32_t consecutive_perceptron_wins;
+    
+    // Local History
+    uint8_t local_history[LOCAL_HIST_LEN];
+    int local_theta;
+    int local_tc;
+    int local_bias;
+    
+    // Global History
+    int global_weights[G_WEIGHTS];
+    int global_theta;
+    int global_tc;
+    int global_bias;
+};
+
+H2PEntry h2p_cache[NUM_CPUS][MAX_H2P];
+
+// Shared Local Weights
+int local_weights[NUM_CPUS][L_TABLES][L_TABLE_SIZE];
+
+// Global History for Bullseye
+uint8_t bullseye_global_hist[NUM_CPUS][2048]; // large enough
+uint32_t bullseye_ghist_head[NUM_CPUS];
+
+// Temp state for update
+int last_local_out[NUM_CPUS];
+int last_global_out[NUM_CPUS];
+bool last_local_conf[NUM_CPUS];
+bool last_global_conf[NUM_CPUS];
+int last_h2p_idx[NUM_CPUS];
+
+// Adaptive Arbiter & HIT
+#define WINDOW_SIZE 1024
+bool recent_outcomes[NUM_CPUS][WINDOW_SIZE];
+bool recent_preds[NUM_CPUS][WINDOW_SIZE];
+bool recent_base_preds[NUM_CPUS][WINDOW_SIZE];
+uint32_t window_head[NUM_CPUS];
+int arbiter_threshold_offset[NUM_CPUS];
+float last_accuracy[NUM_CPUS];
+int hit_threshold_offset[NUM_CPUS];
+bool last_final_pred[NUM_CPUS];
+
+void O3_CPU::initialize_branch_predictor () {
+    memset (tables, 0, sizeof (tables));
+    memset (ghist_words, 0, sizeof (ghist_words));
+    for (int i=0; i<NUM_CPUS; i++) theta[i] = 10;
+    
+    // Initialize Bullseye
+    memset(hit_table, 0, sizeof(hit_table));
+    memset(n_h2p_active, 0, sizeof(n_h2p_active));
+    memset(bullseye_cycle, 0, sizeof(bullseye_cycle));
+    memset(h2p_cache, 0, sizeof(h2p_cache));
+    memset(local_weights, 0, sizeof(local_weights));
+    memset(bullseye_global_hist, 0, sizeof(bullseye_global_hist));
+    memset(bullseye_ghist_head, 0, sizeof(bullseye_ghist_head));
+    memset(recent_outcomes, 0, sizeof(recent_outcomes));
+    memset(recent_preds, 0, sizeof(recent_preds));
+    memset(recent_base_preds, 0, sizeof(recent_base_preds));
+    memset(window_head, 0, sizeof(window_head));
+    memset(arbiter_threshold_offset, 0, sizeof(arbiter_threshold_offset));
+    memset(hit_threshold_offset, 0, sizeof(hit_threshold_offset));
+    memset(last_final_pred, 0, sizeof(last_final_pred));
+    for (int c=0; c<NUM_CPUS; c++) last_accuracy[c] = 0.0f;
+    
+    for (int c=0; c<NUM_CPUS; c++) {
+        for (int i=0; i<MAX_H2P; i++) {
+            h2p_cache[c][i].local_theta = 10;
+            h2p_cache[c][i].global_theta = 10;
+        }
+    }
+}
+
+// Bullseye Helper Functions
+float get_accuracy_threshold(uint32_t n_h2p) {
+    if (n_h2p < 32) return 1.0f - 0.01f * (n_h2p) / 32.0f;
+    else if (n_h2p <= 71) return 0.95f - 0.01f * (n_h2p - 32);
+    else return 0.60f;
+}
+
+int get_hit_set(uint64_t pc) {
+    return (pc ^ (pc >> 6)) % HIT_SETS;
+}
+
+int get_h2p_index(uint32_t cpu_id, uint64_t pc) {
+    for (int i = 0; i < MAX_H2P; i++) {
+        if (h2p_cache[cpu_id][i].valid && h2p_cache[cpu_id][i].pc == pc) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+uint32_t hash_local(uint64_t pc, int table_idx) {
+    return (pc ^ (pc >> 4) ^ (table_idx * 137)) % L_TABLE_SIZE;
+}
+
+int compute_local_out(uint32_t cpu_id, int h2p_idx, uint64_t pc) {
+    H2PEntry& entry = h2p_cache[cpu_id][h2p_idx];
+    int out = entry.local_bias;
+    for (int i = 0; i < L_TABLES; i++) {
+        uint32_t hash = hash_local(pc, i);
+        int hist_bit = entry.local_history[i % LOCAL_HIST_LEN];
+        if (hist_bit) {
+            out += local_weights[cpu_id][i][hash];
+        } else {
+            out -= local_weights[cpu_id][i][hash];
+        }
+    }
+    return out;
+}
+
+int compute_global_out(uint32_t cpu_id, int h2p_idx, uint64_t pc) {
+    H2PEntry& entry = h2p_cache[cpu_id][h2p_idx];
+    int out = entry.global_bias;
+    for (int i = 0; i < G_WEIGHTS; i++) {
+        int idx = (bullseye_ghist_head[cpu_id] + i) % 2048;
+        if (bullseye_global_hist[cpu_id][idx]) {
+            out += entry.global_weights[i];
+        } else {
+            out -= entry.global_weights[i];
+        }
+    }
+    return out;
+}
+
+uint8_t O3_CPU::predict_branch(uint64_t pc) {
+    bullseye_cycle[cpu]++;
+    
+    // 1. Baseline Hashed Perceptron Prediction
+    yout[cpu] = 0;
+    for (int i=0; i<NTABLES; i++) {
+        int n = history_lengths[i];
+        unsigned int x = 0;
+        int most_words = n / LOG_TABLE_SIZE;
+        int last_word = n % LOG_TABLE_SIZE;
+        int j;
+        for (j=0; j<most_words; j++) x ^= ghist_words[cpu][j];
+        x ^= ghist_words[cpu][j] & ((1<<last_word)-1);
+        x ^= pc;
+        x &= TABLE_SIZE-1;
+        indices[cpu][i] = x;
+        yout[cpu] += tables[cpu][i][x];
+    }
+    bool base_pred = (yout[cpu] >= 1);
+    
+    // 2. Bullseye Arbitration
+    int h2p_idx = get_h2p_index(cpu, pc);
+    last_h2p_idx[cpu] = h2p_idx;
+    
+    if (h2p_idx != -1) {
+        h2p_cache[cpu][h2p_idx].last_used = bullseye_cycle[cpu];
+        
+        int l_out = compute_local_out(cpu, h2p_idx, pc);
+        int g_out = compute_global_out(cpu, h2p_idx, pc);
+        last_local_out[cpu] = l_out;
+        last_global_out[cpu] = g_out;
+        
+        bool l_pred = (l_out >= 0);
+        bool g_pred = (g_out >= 0);
+        
+        // Confidence
+        int l_thresh = std::max(1, h2p_cache[cpu][h2p_idx].local_theta + arbiter_threshold_offset[cpu]);
+        int g_thresh = std::max(1, h2p_cache[cpu][h2p_idx].global_theta + arbiter_threshold_offset[cpu]);
+        bool l_conf = (abs(l_out) > l_thresh);
+        bool g_conf = (abs(g_out) > g_thresh);
+        
+        // Check running win-rate
+        bool win_rate_high = (h2p_cache[cpu][h2p_idx].confidence > 0);
+        
+        last_local_conf[cpu] = l_conf && win_rate_high;
+        last_global_conf[cpu] = g_conf && win_rate_high;
+        
+        bool base_conf = (abs(yout[cpu]) > theta[cpu]);
+        
+        if ((last_local_conf[cpu] || last_global_conf[cpu]) && !base_conf) {
+            // Perceptron takes over
+            if (last_local_conf[cpu]) last_final_pred[cpu] = l_pred;
+            else last_final_pred[cpu] = g_pred;
+            return last_final_pred[cpu];
+        } else if (last_local_conf[cpu] && last_global_conf[cpu]) {
+            last_final_pred[cpu] = l_pred; // tie breaker
+            return last_final_pred[cpu];
+        }
+    }
+    
+    last_final_pred[cpu] = base_pred;
+    return base_pred;
+}
+
+void O3_CPU::last_branch_result(uint64_t pc, uint8_t taken) {
+    bool base_correct = (taken == (yout[cpu] >= 1));
+    int h2p_idx = last_h2p_idx[cpu];
+    
+    // --- Update HIT ---
+    int set = get_hit_set(pc);
+    int way = -1;
+    for (int i = 0; i < HIT_WAYS; i++) {
+        if (hit_table[cpu][set][i].valid && hit_table[cpu][set][i].tag == pc) {
+            way = i;
+            break;
+        }
+    }
+    if (way == -1) {
+        // Find empty or LRU
+        int lru_way = 0;
+        uint64_t lru_time = UINT64_MAX;
+        for (int i = 0; i < HIT_WAYS; i++) {
+            if (!hit_table[cpu][set][i].valid) {
+                way = i;
+                break;
+            }
+            if (hit_table[cpu][set][i].last_used < lru_time) {
+                lru_time = hit_table[cpu][set][i].last_used;
+                lru_way = i;
+            }
+        }
+        if (way == -1) way = lru_way;
+        
+        hit_table[cpu][set][way].valid = true;
+        hit_table[cpu][set][way].tag = pc;
+        hit_table[cpu][set][way].exec_count = 0;
+        hit_table[cpu][set][way].mispred_count = 0;
+    }
+    
+    hit_table[cpu][set][way].last_used = bullseye_cycle[cpu];
+    hit_table[cpu][set][way].exec_count++;
+    if (!base_correct) hit_table[cpu][set][way].mispred_count++;
+    
+    // Check H2P Admission
+    if (h2p_idx == -1) {
+        uint32_t execs = hit_table[cpu][set][way].exec_count;
+        uint32_t mispreds = hit_table[cpu][set][way].mispred_count;
+        float acc = 1.0f - (float)mispreds / (float)execs;
+        
+        uint32_t n_h2p = n_h2p_active[cpu];
+        uint32_t exec_thresh = 2048 + 16 * n_h2p;
+        uint32_t mispred_thresh = std::max(1, 256 + hit_threshold_offset[cpu]);
+        float acc_thresh = get_accuracy_threshold(n_h2p);
+        
+        if (execs >= exec_thresh && mispreds >= mispred_thresh && acc < acc_thresh) {
+            // Allocate in H2P cache
+            int alloc_idx = -1;
+            uint64_t lru_time = UINT64_MAX;
+            for (int i = 0; i < MAX_H2P; i++) {
+                if (!h2p_cache[cpu][i].valid) {
+                    alloc_idx = i;
+                    break;
+                }
+                // Eviction policy: confidence saturated for baseline OR stale
+                if (h2p_cache[cpu][i].confidence < -100 || (bullseye_cycle[cpu] - h2p_cache[cpu][i].last_used) > 65536) {
+                    if (h2p_cache[cpu][i].last_used < lru_time) {
+                        lru_time = h2p_cache[cpu][i].last_used;
+                        alloc_idx = i;
+                    }
+                }
+            }
+            if (alloc_idx != -1) {
+                if (h2p_cache[cpu][alloc_idx].valid) {
+                    n_h2p_active[cpu]--;
+                }
+                H2PEntry& n_entry = h2p_cache[cpu][alloc_idx];
+                memset(&n_entry, 0, sizeof(H2PEntry));
+                n_entry.valid = true;
+                n_entry.pc = pc;
+                n_entry.local_theta = 10;
+                n_entry.global_theta = 10;
+                n_entry.last_used = bullseye_cycle[cpu];
+                n_h2p_active[cpu]++;
+                h2p_idx = alloc_idx;
+            }
+        }
+    }
+    
+    // --- Update Bullseye Perceptrons ---
+    bool filter_base = false;
+    
+    if (h2p_idx != -1) {
+        H2PEntry& entry = h2p_cache[cpu][h2p_idx];
+        entry.trial_count++;
+        
+        int l_out = last_local_out[cpu];
+        int g_out = last_global_out[cpu];
+        bool l_pred = (l_out >= 0);
+        bool g_pred = (g_out >= 0);
+        bool l_correct = (l_pred == taken);
+        bool g_correct = (g_pred == taken);
+        
+        // Update relative performance
+        if (l_correct || g_correct) {
+            if (!base_correct) {
+                if (entry.relative_perf < 255) entry.relative_perf++;
+            }
+        } else if (base_correct) {
+            if (entry.relative_perf > -255) entry.relative_perf--;
+        }
+        
+        if (entry.relative_perf > 50) {
+            entry.confidence = std::min(entry.confidence + 1, 255);
+        } else if (entry.relative_perf < -50) {
+            entry.confidence = entry.confidence / 2;
+            if (entry.confidence == 0) entry.confidence = -1;
+            else if (entry.confidence < 0) entry.confidence--;
+        }
+        
+        if ((l_correct || g_correct) && !base_correct) {
+            entry.consecutive_perceptron_wins++;
+        } else if (base_correct) {
+            entry.consecutive_perceptron_wins = 0;
+        }
+        
+        // Filter Base Updates
+        if (entry.consecutive_perceptron_wins >= 128) {
+            filter_base = true;
+        }
+        if (!(last_local_conf[cpu] || last_global_conf[cpu])) {
+            filter_base = false; // revoke if confidence drops
+        }
+        
+        // Update Local Weights
+        if (!l_correct || abs(l_out) <= entry.local_theta) {
+            if (taken) { if (entry.local_bias < 127) entry.local_bias++; }
+            else { if (entry.local_bias > -128) entry.local_bias--; }
+            
+            for (int i = 0; i < L_TABLES; i++) {
+                uint32_t hash = hash_local(pc, i);
+                int hist_bit = entry.local_history[i % LOCAL_HIST_LEN];
+                int* c = &local_weights[cpu][i][hash];
+                if (taken == hist_bit) {
+                    if (*c < 127) (*c)++;
+                } else {
+                    if (*c > -128) (*c)--;
+                }
+            }
+            if (!l_correct) {
+                entry.local_tc++;
+                if (entry.local_tc >= SPEED) {
+                    entry.local_theta++;
+                    entry.local_tc = 0;
+                }
+            } else if (abs(l_out) < entry.local_theta) {
+                entry.local_tc--;
+                if (entry.local_tc <= -SPEED) {
+                    entry.local_theta--;
+                    entry.local_tc = 0;
+                }
+            }
+        }
+        
+        // Update Global Weights
+        if (!g_correct || abs(g_out) <= entry.global_theta) {
+            if (taken) { if (entry.global_bias < 127) entry.global_bias++; }
+            else { if (entry.global_bias > -128) entry.global_bias--; }
+            
+            for (int i = 0; i < G_WEIGHTS; i++) {
+                int idx = (bullseye_ghist_head[cpu] + i) % 2048;
+                int hist_bit = bullseye_global_hist[cpu][idx];
+                int* c = &entry.global_weights[i];
+                if (taken == hist_bit) {
+                    if (*c < 127) (*c)++;
+                } else {
+                    if (*c > -128) (*c)--;
+                }
+            }
+            if (!g_correct) {
+                entry.global_tc++;
+                if (entry.global_tc >= SPEED) {
+                    entry.global_theta++;
+                    entry.global_tc = 0;
+                }
+            } else if (abs(g_out) < entry.global_theta) {
+                entry.global_tc--;
+                if (entry.global_tc <= -SPEED) {
+                    entry.global_theta--;
+                    entry.global_tc = 0;
+                }
+            }
+        }
+        
+        // Update Local History
+        for (int i = LOCAL_HIST_LEN - 1; i > 0; i--) {
+            entry.local_history[i] = entry.local_history[i-1];
+        }
+        entry.local_history[0] = taken;
+    }
+    
+    // Update Global History for Bullseye
+    bullseye_ghist_head[cpu] = (bullseye_ghist_head[cpu] - 1 + 2048) % 2048;
+    bullseye_global_hist[cpu][bullseye_ghist_head[cpu]] = taken;
+    
+    // --- Update Baseline Hashed Perceptron ---
+    if (!filter_base) {
+        bool b = taken;
+        for (int i=0; i<NGHIST_WORDS; i++) {
+            ghist_words[cpu][i] <<= 1;
+            ghist_words[cpu][i] |= b;
+            b = !!(ghist_words[cpu][i] & TABLE_SIZE);
+            ghist_words[cpu][i] &= TABLE_SIZE-1;
+        }
+
+        int a = (yout[cpu] < 0) ? -yout[cpu] : yout[cpu];
+
+        if (!base_correct || a < theta[cpu]) {
+            for (int i=0; i<NTABLES; i++) {
+                int *c = &tables[cpu][i][indices[cpu][i]];
+                if (taken) {
+                    if (*c < 127) (*c)++;
+                } else {
+                    if (*c > -128) (*c)--;
+                }
+            }
+            if (!base_correct) {
+                tc[cpu]++;
+                if (tc[cpu] >= SPEED) {
+                    theta[cpu]++;
+                    tc[cpu] = 0;
+                }
+            } else if (a < theta[cpu]) {
+                tc[cpu]--;
+                if (tc[cpu] <= -SPEED) {
+                    theta[cpu]--;
+                    tc[cpu] = 0;
+                }
+            }
+        }
+    }
+
+    // Adaptive Bullseye: Window Tracking
+    recent_outcomes[cpu][window_head[cpu]] = taken;
+    recent_preds[cpu][window_head[cpu]] = last_final_pred[cpu];
+    recent_base_preds[cpu][window_head[cpu]] = (yout[cpu] >= 1);
+    
+    window_head[cpu] = (window_head[cpu] + 1) % WINDOW_SIZE;
+    
+    if (bullseye_cycle[cpu] % WINDOW_SIZE == 0) {
+        int correct = 0;
+        int base_correct = 0;
+        for (int i=0; i<WINDOW_SIZE; i++) {
+            if (recent_preds[cpu][i] == recent_outcomes[cpu][i]) correct++;
+            if (recent_base_preds[cpu][i] == recent_outcomes[cpu][i]) base_correct++;
+        }
+        float current_acc = (float)correct / WINDOW_SIZE;
+        float base_acc = (float)base_correct / WINDOW_SIZE;
+        
+        // 1. Adaptive Arbiter Threshold
+        if (current_acc < last_accuracy[cpu] - 0.005f) {
+            arbiter_threshold_offset[cpu] = std::min(arbiter_threshold_offset[cpu] + 2, 40);
+        } else if (current_acc > last_accuracy[cpu] + 0.005f) {
+            arbiter_threshold_offset[cpu] = std::max(arbiter_threshold_offset[cpu] - 1, -20);
+        }
+        last_accuracy[cpu] = current_acc;
+        
+        // 2. Adaptive HIT Admission Threshold
+        if (current_acc > base_acc + 0.02f) {
+            hit_threshold_offset[cpu] = std::max(hit_threshold_offset[cpu] - 5, -100);
+        } else if (current_acc < base_acc - 0.01f) {
+            hit_threshold_offset[cpu] = std::min(hit_threshold_offset[cpu] + 5, 200);
+        }
+    }
+}

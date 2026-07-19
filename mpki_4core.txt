@@ -1,0 +1,16 @@
+results_4core_10M/mix0-bimodal-no-no-no-no-lru-4core.txt:CPU 0 Branch Prediction Accuracy: 92.2048% MPKI: 12.4941 Average ROB Occupancy at Mispredict: 25.5401
+results_4core_10M/mix0-bimodal-no-no-no-no-lru-4core.txt:CPU 1 Branch Prediction Accuracy: 99.6434% MPKI: 0.700531 Average ROB Occupancy at Mispredict: 45.1579
+results_4core_10M/mix0-bimodal-no-no-no-no-lru-4core.txt:CPU 2 Branch Prediction Accuracy: 93.1786% MPKI: 13.519 Average ROB Occupancy at Mispredict: 34.8734
+results_4core_10M/mix0-bimodal-no-no-no-no-lru-4core.txt:CPU 3 Branch Prediction Accuracy: 95.9094% MPKI: 3.51095 Average ROB Occupancy at Mispredict: 191.931
+results_4core_10M/mix0-gshare-no-no-no-no-lru-4core.txt:CPU 0 Branch Prediction Accuracy: 92.6482% MPKI: 11.7701 Average ROB Occupancy at Mispredict: 28.03
+results_4core_10M/mix0-gshare-no-no-no-no-lru-4core.txt:CPU 1 Branch Prediction Accuracy: 99.7671% MPKI: 0.45762 Average ROB Occupancy at Mispredict: 60.0737
+results_4core_10M/mix0-gshare-no-no-no-no-lru-4core.txt:CPU 2 Branch Prediction Accuracy: 93.7684% MPKI: 12.3547 Average ROB Occupancy at Mispredict: 38.9234
+results_4core_10M/mix0-gshare-no-no-no-no-lru-4core.txt:CPU 3 Branch Prediction Accuracy: 97.7116% MPKI: 1.94351 Average ROB Occupancy at Mispredict: 138.651
+results_4core_10M/mix0-hashed_perceptron-no-no-no-no-lru-4core.txt:CPU 0 Branch Prediction Accuracy: 94.5358% MPKI: 8.77138 Average ROB Occupancy at Mispredict: 34.8753
+results_4core_10M/mix0-hashed_perceptron-no-no-no-no-lru-4core.txt:CPU 1 Branch Prediction Accuracy: 99.9393% MPKI: 0.119196 Average ROB Occupancy at Mispredict: 133.87
+results_4core_10M/mix0-hashed_perceptron-no-no-no-no-lru-4core.txt:CPU 2 Branch Prediction Accuracy: 94.5078% MPKI: 10.8835 Average ROB Occupancy at Mispredict: 43.1537
+results_4core_10M/mix0-hashed_perceptron-no-no-no-no-lru-4core.txt:CPU 3 Branch Prediction Accuracy: 98.9603% MPKI: 0.886832 Average ROB Occupancy at Mispredict: 154.118
+results_4core_10M/mix0-perceptron-no-no-no-no-lru-4core.txt:CPU 0 Branch Prediction Accuracy: 93.7859% MPKI: 9.99147 Average ROB Occupancy at Mispredict: 31.1878
+results_4core_10M/mix0-perceptron-no-no-no-no-lru-4core.txt:CPU 1 Branch Prediction Accuracy: 99.7967% MPKI: 0.399241 Average ROB Occupancy at Mispredict: 66.1367
+results_4core_10M/mix0-perceptron-no-no-no-no-lru-4core.txt:CPU 2 Branch Prediction Accuracy: 94.044% MPKI: 11.8033 Average ROB Occupancy at Mispredict: 40.5919
+results_4core_10M/mix0-perceptron-no-no-no-no-lru-4core.txt:CPU 3 Branch Prediction Accuracy: 97.9523% MPKI: 1.7416 Average ROB Occupancy at Mispredict: 148.811

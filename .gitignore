@@ -1,0 +1,8 @@
+bin/
+obj/
+dpc3_traces/
+*.xz
+*.o
+*.out
+*.log
+*.tmp
