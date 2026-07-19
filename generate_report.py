@@ -11,88 +11,60 @@ def main():
         print("summary_stats.csv not found")
         return
         
-    # Group by Trace and Size
-    # Target: compare MRU, Random, Adaptive HCIT against LRU
-    
     traces = list(set([row['Trace'] for row in data]))
     sizes = sorted(list(set([int(row['Size'].replace('MB', '')) for row in data])))
     policies = ["lru", "mru", "random", "adaptive_hcit"]
     
-    # We want to output:
-    # 1. IPC comparison table (1MB, 2MB, 4MB, 8MB)
-    # 2. MPKI comparison table
-    
     md_lines = []
-    md_lines.append("# ChampSim Experimental Results")
+    md_lines.append("# ChampSim Experimental Results (Extended)")
     md_lines.append("")
     
-    # Helper to find a specific row
     def find_row(trace, size, policy, ways=16):
         for r in data:
             if r['Trace'] == trace and int(r['Size'].replace('MB', '')) == size and r['Policy'] == policy and int(r['Ways'].replace('way', '')) == ways:
                 return r
         return None
         
-    md_lines.append("## IPC Comparison (16-way)")
-    md_lines.append("| Trace | Size (MB) | LRU | MRU | Random | Adaptive HCIT | Imprv. over LRU (HCIT) |")
-    md_lines.append("|-------|-----------|-----|-----|--------|---------------|------------------------|")
-    
-    for trace in sorted(traces):
-        for size in sizes:
-            lru_r = find_row(trace, size, "lru")
-            if not lru_r: continue
-            mru_r = find_row(trace, size, "mru")
-            rand_r = find_row(trace, size, "random")
-            hcit_r = find_row(trace, size, "adaptive_hcit")
-            
-            lru_ipc = float(lru_r['IPC'])
-            mru_ipc = float(mru_r['IPC']) if mru_r else 0.0
-            rand_ipc = float(rand_r['IPC']) if rand_r else 0.0
-            hcit_ipc = float(hcit_r['IPC']) if hcit_r else 0.0
-            
-            imprv = ((hcit_ipc - lru_ipc) / lru_ipc * 100.0) if lru_ipc > 0 else 0.0
-            
-            md_lines.append(f"| {trace} | {size} | {lru_ipc:.4f} | {mru_ipc:.4f} | {rand_ipc:.4f} | {hcit_ipc:.4f} | {imprv:+.2f}% |")
-
-    md_lines.append("")
-    md_lines.append("## MPKI Comparison (16-way)")
-    md_lines.append("| Trace | Size (MB) | LRU | MRU | Random | Adaptive HCIT | Imprv. over LRU (HCIT) |")
-    md_lines.append("|-------|-----------|-----|-----|--------|---------------|------------------------|")
-    
-    for trace in sorted(traces):
-        for size in sizes:
-            lru_r = find_row(trace, size, "lru")
-            if not lru_r: continue
-            mru_r = find_row(trace, size, "mru")
-            rand_r = find_row(trace, size, "random")
-            hcit_r = find_row(trace, size, "adaptive_hcit")
-            
-            lru_mpki = float(lru_r['LLC_MPKI'])
-            mru_mpki = float(mru_r['LLC_MPKI']) if mru_r else 0.0
-            rand_mpki = float(rand_r['LLC_MPKI']) if rand_r else 0.0
-            hcit_mpki = float(hcit_r['LLC_MPKI']) if hcit_r else 0.0
-            
-            imprv = ((lru_mpki - hcit_mpki) / lru_mpki * 100.0) if lru_mpki > 0 else 0.0
-            
-            md_lines.append(f"| {trace} | {size} | {lru_mpki:.4f} | {mru_mpki:.4f} | {rand_mpki:.4f} | {hcit_mpki:.4f} | {imprv:+.2f}% |")
-
-    md_lines.append("")
-    md_lines.append("## IPC Comparison (8-way)")
-    md_lines.append("| Trace | Size (MB) | LRU | MRU | Random | Adaptive HCIT | Imprv. over LRU (HCIT) |")
-    md_lines.append("|-------|-----------|-----|-----|--------|---------------|------------------------|")
-    for trace in sorted(traces):
-        lru_r = find_row(trace, 2, "lru", ways=8)
-        if not lru_r: continue
-        mru_r = find_row(trace, 2, "mru", ways=8)
-        rand_r = find_row(trace, 2, "random", ways=8)
-        hcit_r = find_row(trace, 2, "adaptive_hcit", ways=8)
+    def add_table(title, metric_key, is_percent=False, invert_imprv=False):
+        md_lines.append(f"## {title} (16-way)")
+        md_lines.append("| Trace | Size (MB) | LRU | MRU | Random | Adaptive HCIT | Imprv. over LRU (HCIT) |")
+        md_lines.append("|-------|-----------|-----|-----|--------|---------------|------------------------|")
         
-        lru_ipc = float(lru_r['IPC'])
-        mru_ipc = float(mru_r['IPC']) if mru_r else 0.0
-        rand_ipc = float(rand_r['IPC']) if rand_r else 0.0
-        hcit_ipc = float(hcit_r['IPC']) if hcit_r else 0.0
-        imprv = ((hcit_ipc - lru_ipc) / lru_ipc * 100.0) if lru_ipc > 0 else 0.0
-        md_lines.append(f"| {trace} | 2 | {lru_ipc:.4f} | {mru_ipc:.4f} | {rand_ipc:.4f} | {hcit_ipc:.4f} | {imprv:+.2f}% |")
+        for trace in sorted(traces):
+            for size in sizes:
+                lru_r = find_row(trace, size, "lru")
+                if not lru_r: continue
+                mru_r = find_row(trace, size, "mru")
+                rand_r = find_row(trace, size, "random")
+                hcit_r = find_row(trace, size, "adaptive_hcit")
+                
+                lru_v = float(lru_r[metric_key])
+                mru_v = float(mru_r[metric_key]) if mru_r else 0.0
+                rand_v = float(rand_r[metric_key]) if rand_r else 0.0
+                hcit_v = float(hcit_r[metric_key]) if hcit_r else 0.0
+                
+                if invert_imprv:
+                    imprv = ((lru_v - hcit_v) / lru_v * 100.0) if lru_v > 0 else 0.0
+                else:
+                    imprv = ((hcit_v - lru_v) / lru_v * 100.0) if lru_v > 0 else 0.0
+                    
+                if is_percent:
+                    md_lines.append(f"| {trace} | {size} | {lru_v*100:.2f}% | {mru_v*100:.2f}% | {rand_v*100:.2f}% | {hcit_v*100:.2f}% | {imprv:+.2f}% |")
+                else:
+                    # For integers like Cycles or Writes
+                    if lru_v > 1000:
+                        md_lines.append(f"| {trace} | {size} | {int(lru_v)} | {int(mru_v)} | {int(rand_v)} | {int(hcit_v)} | {imprv:+.2f}% |")
+                    else:
+                        md_lines.append(f"| {trace} | {size} | {lru_v:.4f} | {mru_v:.4f} | {rand_v:.4f} | {hcit_v:.4f} | {imprv:+.2f}% |")
+        md_lines.append("")
+        
+    add_table("IPC Comparison", "IPC", False, False)
+    add_table("L1 Miss Rate", "L1_Miss_Rate", True, True)
+    add_table("L2 Miss Rate", "L2_Miss_Rate", True, True)
+    add_table("L3 (LLC) Miss Rate", "LLC_Miss_Rate", True, True)
+    add_table("LLC Hit Rate", "LLC_Hit_Rate", True, False)
+    add_table("Total LLC Writes", "LLC_Writes", False, True)
+    add_table("Execution Time (Cycles)", "Cycles", False, True)
 
     with open("results.md", "w") as f:
         f.write("\n".join(md_lines))
@@ -107,10 +79,11 @@ def main():
         <style>
             body { font-family: Arial, sans-serif; margin: 40px; }
             .chart-container { width: 800px; margin: 20px auto; }
+            .section { margin-bottom: 50px; }
         </style>
     </head>
     <body>
-        <h1 style="text-align: center;">ChampSim Experimental Results (IPC)</h1>
+        <h1 style="text-align: center;">ChampSim Experimental Results</h1>
         <div id="charts"></div>
         
         <script>
@@ -119,38 +92,53 @@ def main():
             const sizes = SIZES_PLACEHOLDER;
             const policies = ['lru', 'mru', 'random', 'adaptive_hcit'];
             
+            const metrics = [
+                { key: 'IPC', name: 'IPC' },
+                { key: 'LLC_Miss_Rate', name: 'LLC Miss Rate' },
+                { key: 'LLC_Hit_Rate', name: 'LLC Hit Rate' },
+                { key: 'LLC_Writes', name: 'Total LLC Writes' },
+                { key: 'Cycles', name: 'Execution Time (Cycles)' }
+            ];
+            
             const container = document.getElementById('charts');
             
-            traces.forEach(trace => {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'chart-container';
-                const canvas = document.createElement('canvas');
-                wrapper.appendChild(canvas);
-                container.appendChild(wrapper);
+            metrics.forEach(metric => {
+                const sec = document.createElement('div');
+                sec.className = 'section';
+                sec.innerHTML = `<h2 style="text-align: center;">${metric.name} Comparison</h2>`;
+                container.appendChild(sec);
                 
-                const datasets = policies.map(pol => {
-                    return {
-                        label: pol.toUpperCase(),
-                        data: sizes.map(sz => {
-                            const row = data.find(r => r.Trace === trace && parseInt(r.Size) === sz && r.Policy === pol && parseInt(r.Ways) === 16);
-                            return row ? parseFloat(row.IPC) : 0;
-                        }),
-                        borderWidth: 2
-                    };
-                });
-                
-                new Chart(canvas, {
-                    type: 'bar',
-                    data: {
-                        labels: sizes.map(s => s + 'MB'),
-                        datasets: datasets
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            title: { display: true, text: 'IPC Comparison - ' + trace }
+                traces.forEach(trace => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'chart-container';
+                    const canvas = document.createElement('canvas');
+                    wrapper.appendChild(canvas);
+                    sec.appendChild(wrapper);
+                    
+                    const datasets = policies.map(pol => {
+                        return {
+                            label: pol.toUpperCase(),
+                            data: sizes.map(sz => {
+                                const row = data.find(r => r.Trace === trace && parseInt(r.Size) === sz && r.Policy === pol && parseInt(r.Ways) === 16);
+                                return row ? parseFloat(row[metric.key]) : 0;
+                            }),
+                            borderWidth: 2
+                        };
+                    });
+                    
+                    new Chart(canvas, {
+                        type: 'bar',
+                        data: {
+                            labels: sizes.map(s => s + 'MB'),
+                            datasets: datasets
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: { display: true, text: `${metric.name} - ${trace}` }
+                            }
                         }
-                    }
+                    });
                 });
             });
         </script>
