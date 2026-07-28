@@ -1,6 +1,6 @@
-import pandas as pd
+import csv
 import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
 import os
 
 def main():
@@ -8,50 +8,53 @@ def main():
         print("summary_stats.csv not found")
         return
         
-    df = pd.read_csv("summary_stats.csv")
-    
-    # We want to compare policies for every LLC size
-    # Let's create a bar chart for average IPC across traces for single-core (16-way)
-    
-    df_1c = df[(df['Cores'] == 1) & (df['Ways'] == 16)]
-    if not df_1c.empty:
-        avg_ipc_1c = df_1c.groupby(['Size', 'Policy'])['IPC'].mean().reset_index()
-        plt.figure(figsize=(10, 6))
-        sns.barplot(data=avg_ipc_1c, x='Size', y='IPC', hue='Policy')
-        plt.title('Average IPC vs LLC Size (Single-Core, 16-Way)')
-        plt.xlabel('LLC Size (MB)')
-        plt.ylabel('Average IPC')
-        plt.legend(title='Policy')
-        plt.savefig('ipc_single_core.png')
-        plt.close()
-
-    # Same for 4-core
-    df_4c = df[(df['Cores'] == 4) & (df['Ways'] == 16)]
-    if not df_4c.empty:
-        avg_ipc_4c = df_4c.groupby(['Size', 'Policy'])['IPC'].mean().reset_index()
-        plt.figure(figsize=(10, 6))
-        sns.barplot(data=avg_ipc_4c, x='Size', y='IPC', hue='Policy')
-        plt.title('Average IPC vs LLC Size (4-Core, 16-Way)')
-        plt.xlabel('LLC Size (MB)')
-        plt.ylabel('Average IPC')
-        plt.legend(title='Policy')
-        plt.savefig('ipc_4core.png')
-        plt.close()
+    with open("summary_stats.csv", "r") as f:
+        reader = csv.DictReader(f)
+        data = list(reader)
         
-    # Compare 16-way vs 8-way for 2MB
-    df_assoc = df[(df['Cores'] == 1) & (df['Size'] == 2)]
-    if not df_assoc.empty:
-        avg_ipc_assoc = df_assoc.groupby(['Ways', 'Policy'])['IPC'].mean().reset_index()
-        plt.figure(figsize=(10, 6))
-        sns.barplot(data=avg_ipc_assoc, x='Ways', y='IPC', hue='Policy')
-        plt.title('Average IPC vs Associativity (Single-Core, 2MB)')
-        plt.xlabel('Associativity (Ways)')
-        plt.ylabel('Average IPC')
-        plt.legend(title='Policy')
-        plt.savefig('ipc_associativity.png')
-        plt.close()
+    traces = sorted(list(set([row['Trace'] for row in data])))
+    sizes = sorted(list(set([int(row['Size'].replace('MB', '')) for row in data])))
+    policies = ["lru", "mru", "random", "adaptive_hcit"]
+    
+    metrics = [
+        {'key': 'IPC', 'name': 'IPC Comparison', 'ylabel': 'Instructions Per Cycle (IPC)'},
+        {'key': 'LLC_MPKI', 'name': 'MPKI Comparison', 'ylabel': 'Misses Per Kilo-Instruction (MPKI)'},
+        {'key': 'LLC_Miss_Rate', 'name': 'LLC Miss Rate', 'ylabel': 'LLC Miss Rate'},
+        {'key': 'LLC_Hit_Rate', 'name': 'LLC Hit Rate', 'ylabel': 'LLC Hit Rate'},
+        {'key': 'LLC_Writes', 'name': 'Total LLC Writes', 'ylabel': 'Total Writes'},
+        {'key': 'Cycles', 'name': 'Execution Time', 'ylabel': 'Cycles'}
+    ]
+    
+    os.makedirs("graphs", exist_ok=True)
+    
+    def find_val(trace, size, policy, metric_key):
+        for r in data:
+            if r['Trace'] == trace and int(r['Size'].replace('MB', '')) == size and r['Policy'] == policy and int(r['Ways'].replace('way', '')) == 16:
+                return float(r[metric_key])
+        return 0.0
         
-    print("Generated graphs successfully.")
+    for metric in metrics:
+        for trace in traces:
+            plt.figure(figsize=(10, 6))
+            x = np.arange(len(sizes))
+            width = 0.2
+            
+            for i, policy in enumerate(policies):
+                y = [find_val(trace, size, policy, metric['key']) for size in sizes]
+                plt.bar(x + (i - 1.5) * width, y, width, label=policy.upper())
+                
+            plt.xlabel('Cache Size (MB)')
+            plt.ylabel(metric['ylabel'])
+            plt.title(f"{metric['name']} - {trace} (16-way)")
+            plt.xticks(x, [f"{s}MB" for s in sizes])
+            plt.legend()
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            
+            safe_trace = trace.replace('.champsimtrace.xz', '')
+            filename = f"graphs/{metric['key']}_{safe_trace}.png"
+            plt.savefig(filename, bbox_inches='tight')
+            plt.close()
+            print(f"Generated {filename}")
 
 if __name__ == "__main__":
     main()
