@@ -70,8 +70,13 @@ extern uint32_t PAGE_TABLE_LATENCY, SWAP_LATENCY;
 #define L2C_LATENCY 10  // 4/5 (L1I or L1D) + 10 = 14/15 cycles
 
 // LAST LEVEL CACHE
+#ifndef LLC_SET
 #define LLC_SET NUM_CPUS*2048
-#define LLC_WAY 8
+#endif
+
+#ifndef LLC_WAY
+#define LLC_WAY 16
+#endif
 #define LLC_RQ_SIZE NUM_CPUS*L2C_MSHR_SIZE //48
 #define LLC_WQ_SIZE NUM_CPUS*L2C_MSHR_SIZE //48
 #define LLC_PQ_SIZE NUM_CPUS*32

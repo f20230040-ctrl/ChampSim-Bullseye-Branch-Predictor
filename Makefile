@@ -24,7 +24,7 @@ endif
 inc := $(addprefix -I,$(inc))
 libs := $(addprefix -l,$(libs))
 libDir := $(addprefix -L,$(libDir))
-CFlags += -c $(debug) $(inc) $(libDir) $(libs)
+CFlags += -c $(debug) $(inc) $(libDir) $(libs) $(EXTRA_CFLAGS)
 sources := $(shell find $(srcDir) -name '*.$(srcExt)')
 srcDirs := $(shell find . -name '*.$(srcExt)' -exec dirname {} \; | uniq)
 objects := $(patsubst %.$(srcExt),$(objDir)/%.o,$(sources))
@@ -46,6 +46,7 @@ $(binDir)/$(app): buildrepo $(objects)
 	@$(CC) $(objects) $(LDFlags) -o $@
 
 $(objDir)/%.o: %.$(srcExt)
+	@mkdir -p $(dir $@)
 	@echo "Generating dependencies for $<..."
 	@$(call make-depend,$<,$@,$(subst .o,.d,$@))
 	@echo "Compiling $<..."
