@@ -6,3 +6,7 @@ dpc3_traces/
 *.out
 *.log
 *.tmp
+__pycache__/
+*.py[cod]
+legacy/
+graphs/

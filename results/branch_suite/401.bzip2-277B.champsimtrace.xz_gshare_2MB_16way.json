@@ -1,0 +1,76 @@
+{
+  "status": "COMPLETED",
+  "header": {
+    "warmup_instructions": 1000000,
+    "simulation_instructions": 10000000,
+    "num_cpus": 1,
+    "llc_sets": 2048,
+    "llc_ways": 16,
+    "traces": {
+      "0": "./dpc3_traces/401.bzip2-277B.champsimtrace.xz"
+    }
+  },
+  "cpu": {
+    "0": {
+      "ipc": 0.913126,
+      "instructions": 10000000,
+      "cycles": 10951387
+    },
+    "cumulative_ipc": 0.913126,
+    "max_cycles": 10951387
+  },
+  "cache": {
+    "L1D": {
+      "access": 1226089,
+      "hit": 968084,
+      "miss": 258005,
+      "hit_rate": 0.789570740786354,
+      "miss_rate": 0.210429259213646
+    },
+    "L1I": {
+      "access": 1347998,
+      "hit": 1347998,
+      "miss": 0,
+      "hit_rate": 1.0,
+      "miss_rate": 0.0
+    },
+    "L2C": {
+      "access": 271768,
+      "hit": 116938,
+      "miss": 154830,
+      "hit_rate": 0.43028612640193104,
+      "miss_rate": 0.5697138735980689
+    },
+    "LLC": {
+      "access": 161446,
+      "hit": 111351,
+      "miss": 50095,
+      "hit_rate": 0.6897104914336682,
+      "miss_rate": 0.31028950856633175
+    },
+    "LLC_WRITEBACK": {
+      "access": 6616,
+      "hit": 6600,
+      "miss": 16,
+      "total_writes": 6616
+    }
+  },
+  "branch": {
+    "0": {
+      "accuracy_pct": 97.4742,
+      "mpki": 3.9527,
+      "rob_occupancy_at_mispredict": 96.8159
+    }
+  },
+  "execution_metadata": {
+    "binary": "champsim_gshare_lru_2MB_16way_1core",
+    "command": "./bin/champsim_gshare_lru_2MB_16way_1core -warmup_instructions 1000000 -simulation_instructions 10000000 -traces ./dpc3_traces/401.bzip2-277B.champsimtrace.xz",
+    "warmup_instructions": 1000000,
+    "simulation_instructions": 10000000,
+    "elapsed_seconds": 8.55,
+    "output_log": "./results/branch_suite/401.bzip2-277B.champsimtrace.xz_gshare_2MB_16way.txt",
+    "traces": [
+      "401.bzip2-277B.champsimtrace.xz"
+    ]
+  }
+}
